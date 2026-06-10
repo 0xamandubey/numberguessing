@@ -1,0 +1,27 @@
+{
+  "short_name": "Number Duel",
+  "name": "Number Duel — Guessing Game",
+  "description": "A clean, minimalistic 2-player guessing duel. Choose a secret 4-digit code and crack your opponent's number before they guess yours!",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any"
+    },
+    {
+      "src": "icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#FFF5F5",
+  "theme_color": "#EC4899",
+  "display": "standalone",
+  "orientation": "portrait"
+}

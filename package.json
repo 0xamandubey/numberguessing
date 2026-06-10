@@ -1,0 +1,13 @@
+{
+  "name": "number-duel-monorepo",
+  "version": "1.0.0",
+  "description": "Monorepo configuration to build and run the Number Duel PWA guessing game",
+  "scripts": {
+    "install-all": "npm install --prefix frontend && npm install --prefix backend",
+    "build-frontend": "npm run build --prefix frontend",
+    "build-backend": "npm run build --prefix backend",
+    "build": "npm run build-frontend && npm run build-backend",
+    "start": "npm start --prefix backend",
+    "postinstall": "npm run install-all"
+  }
+}
