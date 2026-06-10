@@ -11,7 +11,8 @@ import {
   Lock,
   Play,
   Sparkles,
-  AlertCircle
+  AlertCircle,
+  Target
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -334,8 +335,8 @@ export default function App() {
       
       {/* 1. App Header */}
       <header className="bg-white/80 backdrop-blur-md px-5 py-4 flex justify-between items-center shadow-sm shadow-pink-100/30 border-b border-pink-50 sticky top-0 z-20">
-        <div className="flex items-center space-x-1.5">
-          <span className="text-xl">🎯</span>
+        <div className="flex items-center space-x-2">
+          <Target className="w-5 h-5 text-pink-500" />
           <h1 className="font-bold text-lg text-gray-800 tracking-tight">
             Number Duel
           </h1>
@@ -370,8 +371,8 @@ export default function App() {
         {screen === 'HOME' && (
           <div className="w-full bg-white rounded-3xl p-6 shadow-xl shadow-pink-100/60 border border-pink-50/50 space-y-7 animate-scale-up text-center">
             <div className="space-y-2 py-2">
-              <div className="inline-flex items-center justify-center w-16 h-16 bg-pink-100 rounded-3xl text-3xl shadow-inner shadow-pink-200">
-                🎯
+              <div className="inline-flex items-center justify-center w-16 h-16 bg-pink-50 rounded-3xl shadow-inner shadow-pink-100">
+                <Target className="w-8 h-8 text-pink-500" />
               </div>
               <h2 className="text-2xl font-extrabold text-gray-800 tracking-tight">
                 Number Duel
@@ -595,8 +596,8 @@ export default function App() {
               }
             `}>
               {isMyTurn 
-                ? "It's Your Turn! 🌸" 
-                : "Waiting for Opponent's Guess... ⏳"
+                ? "It's Your Turn" 
+                : "Waiting for Opponent's Guess"
               }
             </div>
 
@@ -766,26 +767,23 @@ export default function App() {
           <div className="w-full bg-white rounded-3xl p-6 shadow-xl shadow-pink-100/60 border border-pink-50/50 space-y-6 animate-scale-up text-center">
             
             {/* Victory / Defeat Display */}
-            <div className="space-y-1.5">
-              <div className="text-4xl">
-                {winnerId === socket.id ? '🎉' : '💔'}
-              </div>
+            <div className="space-y-1.5 py-4">
               {winnerId === socket.id ? (
                 <div>
-                  <h2 className="text-2xl font-black text-pink-600">
-                    You Won!
+                  <h2 className="text-3xl font-extrabold text-pink-600 tracking-tight">
+                    You Won
                   </h2>
-                  <p className="text-xs text-gray-400">
-                    You guessed the opponent's number!
+                  <p className="text-sm text-gray-400 mt-1">
+                    You cracked the opponent's number!
                   </p>
                 </div>
               ) : (
                 <div>
-                  <h2 className="text-2xl font-black text-gray-800">
-                    You Lost!
+                  <h2 className="text-3xl font-extrabold text-gray-800 tracking-tight">
+                    You Lost
                   </h2>
-                  <p className="text-xs text-gray-400">
-                    The opponent guessed your number first.
+                  <p className="text-sm text-gray-400 mt-1">
+                    The opponent cracked your number first.
                   </p>
                 </div>
               )}

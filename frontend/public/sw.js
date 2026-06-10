@@ -21,36 +21,54 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch event - Stale-While-Revalidate caching strategy
+// Fetch event - Network-First for HTML/navigation, Stale-While-Revalidate for static assets
 self.addEventListener('fetch', (event) => {
   // Only handle GET requests and local scope origins
   if (event.request.method !== 'GET' || !event.request.url.startsWith(self.location.origin)) {
     return;
   }
 
-  // Skip Socket.IO polling calls
+  // Skip Socket.IO polling/connection calls
   if (event.request.url.includes('/socket.io/')) {
     return;
   }
 
+  // Network-First for main page navigation to ensure users get the latest update immediately when online
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse.status === 200) {
+            const responseClone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseClone);
+            });
+          }
+          return networkResponse;
+        })
+        .catch(() => {
+          return caches.match(event.request);
+        })
+    );
+    return;
+  }
+
+  // Stale-While-Revalidate for other static assets
   event.respondWith(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.match(event.request).then((cachedResponse) => {
         const fetchPromise = fetch(event.request)
           .then((networkResponse) => {
-            // Update the cache with the new network response if status is ok
             if (networkResponse.status === 200) {
               cache.put(event.request, networkResponse.clone());
             }
             return networkResponse;
           })
           .catch((err) => {
-            console.log('Service Worker: Fetch failed, using cache fallback', err);
-            // Return cached response if offline
+            console.log('Service Worker: Static fetch failed, using cache fallback', err);
             return cachedResponse;
           });
 
-        // Return the cached response if present, otherwise wait for the network response
         return cachedResponse || fetchPromise;
       });
     })
