@@ -42,7 +42,7 @@ export default function App() {
   // Gameplay State
   const [localSecret, setLocalSecret] = useState<number | null>(null);
   const [myGuesses, setMyGuesses] = useState<Guess[]>([]);
-  const [opponentGuessCount, setOpponentGuessCount] = useState(0);
+  const [opponentGuesses, setOpponentGuesses] = useState<Guess[]>([]);
   const [winnerId, setWinnerId] = useState<string | null>(null);
   const [forfeit, setForfeit] = useState(false);
 
@@ -144,7 +144,7 @@ export default function App() {
         else if (payload.hint === 'lower') playBeep(330, 'sine', 0.12); // Low E
         else playBeep(987.77, 'sine', 0.3); // High B
       } else {
-        setOpponentGuessCount(payload.history.length);
+        setOpponentGuesses(payload.history);
         playBeep(440, 'sine', 0.08);
       }
     }
@@ -230,7 +230,7 @@ export default function App() {
     setCurrentTurn(null);
     setLocalSecret(null);
     setMyGuesses([]);
-    setOpponentGuessCount(0);
+    setOpponentGuesses([]);
     setWinnerId(null);
     setForfeit(false);
     setJoinCodeInput('');
@@ -245,7 +245,7 @@ export default function App() {
     setCurrentTurn(null);
     setLocalSecret(null);
     setMyGuesses([]);
-    setOpponentGuessCount(0);
+    setOpponentGuesses([]);
     setWinnerId(null);
     setForfeit(false);
     setSecretInput('');
@@ -655,56 +655,96 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Guess Logs card (Now on Bottom) */}
-              <div className="bg-white rounded-3xl p-5 border border-pink-50/60 shadow-lg shadow-pink-100/30 flex flex-col justify-between h-[250px] md:h-[280px]">
-                <div className="space-y-2.5 flex-grow flex flex-col overflow-hidden">
-                  <div className="border-b border-pink-50 pb-2 flex justify-between items-center">
-                    <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-                      Your Guess History
-                    </span>
-                    <span className="text-[10px] bg-pink-50 text-pink-500 border border-pink-100 px-2.5 py-0.5 rounded-full font-bold">
-                      {myGuesses.length} Guesses
-                    </span>
+              {/* Guess Logs card - Side-by-Side Dual History */}
+              <div className="bg-white rounded-3xl p-4 border border-pink-50/60 shadow-lg shadow-pink-100/30 flex flex-col h-[270px] md:h-[300px]">
+                <div className="grid grid-cols-2 gap-3 h-full overflow-hidden">
+                  
+                  {/* Left Column: Your Guesses */}
+                  <div className="flex flex-col h-full overflow-hidden border-r border-pink-50/70 pr-2.5">
+                    <div className="border-b border-pink-50 pb-2 flex justify-between items-center mb-2">
+                      <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                        You
+                      </span>
+                      <span className="text-[10px] bg-pink-50 text-pink-500 border border-pink-100 px-2 py-0.5 rounded-full font-bold">
+                        {myGuesses.length}
+                      </span>
+                    </div>
+
+                    {/* Scrollable list */}
+                    <div className="flex-grow overflow-y-auto space-y-1.5 pr-0.5">
+                      {myGuesses.length === 0 ? (
+                        <div className="h-full flex items-center justify-center text-[11px] text-gray-300 tracking-wide text-center">
+                          No guesses
+                        </div>
+                      ) : (
+                        [...myGuesses].reverse().map((g, i) => {
+                          const originalIndex = myGuesses.length - i;
+                          const hintBadge = 
+                            g.hint === 'higher' ? 'bg-blue-50 text-blue-500 border border-blue-100/30' :
+                            g.hint === 'lower' ? 'bg-red-50 text-red-500 border border-red-100/30' :
+                            'bg-green-50 text-green-600 border border-green-150';
+
+                          return (
+                            <div 
+                              key={originalIndex} 
+                              className="flex justify-between items-center p-1.5 rounded-xl border border-pink-50/70 bg-white animate-scale-up"
+                            >
+                              <span className="text-gray-500 text-[10px]">
+                                #{originalIndex}: <strong className="text-gray-700 text-xs font-mono font-bold ml-0.5">{String(g.guess).padStart(4, '0')}</strong>
+                              </span>
+                              <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${hintBadge}`}>
+                                {g.hint}
+                              </span>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
                   </div>
 
-                  {/* Scrollable list */}
-                  <div className="flex-1 overflow-y-auto space-y-2 pr-1 text-sm font-sans">
-                    {myGuesses.length === 0 ? (
-                      <div className="h-full flex items-center justify-center text-xs text-gray-300 tracking-wide text-center">
-                        No guesses logged yet
-                      </div>
-                    ) : (
-                      [...myGuesses].reverse().map((g, i) => {
-                        const originalIndex = myGuesses.length - i;
-                        const hintBadge = 
-                          g.hint === 'higher' ? 'bg-blue-50 border border-blue-100 text-blue-500' :
-                          g.hint === 'lower' ? 'bg-red-50 border border-red-100 text-red-500' :
-                          'bg-green-50 border border-green-100 text-green-600 font-bold';
+                  {/* Right Column: Opponent's Guesses */}
+                  <div className="flex flex-col h-full overflow-hidden pl-0.5">
+                    <div className="border-b border-pink-50 pb-2 flex justify-between items-center mb-2">
+                      <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                        Opponent
+                      </span>
+                      <span className="text-[10px] bg-pink-50 text-pink-500 border border-pink-100 px-2 py-0.5 rounded-full font-bold">
+                        {opponentGuesses.length}
+                      </span>
+                    </div>
 
-                        return (
-                          <div 
-                            key={originalIndex} 
-                            className="flex justify-between items-center p-2.5 rounded-xl border border-pink-50 bg-white animate-scale-up"
-                          >
-                            <span className="text-gray-500 text-xs">
-                              Guess #{originalIndex}: <strong className="text-gray-700 text-sm font-mono ml-1">{String(g.guess).padStart(4, '0')}</strong>
-                            </span>
-                            <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-semibold uppercase ${hintBadge}`}>
-                              {g.hint}
-                            </span>
-                          </div>
-                        );
-                      })
-                    )}
+                    {/* Scrollable list */}
+                    <div className="flex-grow overflow-y-auto space-y-1.5 pr-0.5">
+                      {opponentGuesses.length === 0 ? (
+                        <div className="h-full flex items-center justify-center text-[11px] text-gray-300 tracking-wide text-center">
+                          No guesses
+                        </div>
+                      ) : (
+                        [...opponentGuesses].reverse().map((g, i) => {
+                          const originalIndex = opponentGuesses.length - i;
+                          const hintBadge = 
+                            g.hint === 'higher' ? 'bg-blue-50 text-blue-500 border border-blue-100/30' :
+                            g.hint === 'lower' ? 'bg-red-50 text-red-500 border border-red-100/30' :
+                            'bg-green-50 text-green-600 border border-green-150';
+
+                          return (
+                            <div 
+                              key={originalIndex} 
+                              className="flex justify-between items-center p-1.5 rounded-xl border border-pink-50/70 bg-white animate-scale-up"
+                            >
+                              <span className="text-gray-500 text-[10px]">
+                                #{originalIndex}: <strong className="text-gray-700 text-xs font-mono font-bold ml-0.5">{String(g.guess).padStart(4, '0')}</strong>
+                              </span>
+                              <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${hintBadge}`}>
+                                {g.hint}
+                              </span>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
                   </div>
-                </div>
 
-                {/* Opponent attempts */}
-                <div className="border-t border-pink-50 pt-2 flex justify-between items-center text-xs text-gray-400">
-                  <span>Opponent attempts:</span>
-                  <span className="font-bold text-gray-600 bg-pink-50 px-2 py-0.5 rounded-full">
-                    {opponentGuessCount} guesses
-                  </span>
                 </div>
               </div>
 
