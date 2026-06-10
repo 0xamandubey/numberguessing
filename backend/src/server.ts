@@ -40,6 +40,7 @@ const io = new Server(httpServer, {
 
 // Authoritative in-memory room storage
 const rooms: { [code: string]: Room } = {};
+const disconnectTimeouts: { [sessionToken: string]: NodeJS.Timeout } = {};
 
 // Helper to generate a unique room code of 4 letters, avoiding confusing characters
 const ROOM_CODE_CHARACTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -74,6 +75,13 @@ function handlePlayerLeave(socket: Socket) {
   if (leavingPlayerIndex === -1) return;
 
   const leavingPlayer = room.players[leavingPlayerIndex];
+  
+  // Clear any pending reconnect timeout
+  if (disconnectTimeouts[leavingPlayer.sessionToken]) {
+    clearTimeout(disconnectTimeouts[leavingPlayer.sessionToken]);
+    delete disconnectTimeouts[leavingPlayer.sessionToken];
+  }
+
   room.players.splice(leavingPlayerIndex, 1);
 
   // Notify remaining player
@@ -104,7 +112,87 @@ function handlePlayerLeave(socket: Socket) {
 }
 
 io.on('connection', (socket: Socket) => {
-  console.log(`Player connected: ${socket.id}`);
+  const sessionToken = socket.handshake.auth?.sessionToken;
+  console.log(`Player connected: ${socket.id}, sessionToken: ${sessionToken}`);
+
+  // 0. Session Recovery
+  if (sessionToken) {
+    let foundRoom: Room | null = null;
+    let playerIndex = -1;
+    for (const code in rooms) {
+      const idx = rooms[code].players.findIndex(p => p.sessionToken === sessionToken);
+      if (idx !== -1) {
+        foundRoom = rooms[code];
+        playerIndex = idx;
+        break;
+      }
+    }
+
+    if (foundRoom && playerIndex !== -1) {
+      const player = foundRoom.players[playerIndex];
+      const oldPlayerSocketId = player.id;
+
+      // Cancel disconnect timeout
+      if (disconnectTimeouts[sessionToken]) {
+        clearTimeout(disconnectTimeouts[sessionToken]);
+        delete disconnectTimeouts[sessionToken];
+        console.log(`Cancelled disconnect timeout for player ${player.name} (${sessionToken})`);
+      }
+
+      // Disconnect old socket if different
+      const oldSocket = io.sockets.sockets.get(oldPlayerSocketId);
+      if (oldSocket && oldSocket.id !== socket.id) {
+        oldSocket.disconnect();
+      }
+
+      // Update socket ID and status
+      player.id = socket.id;
+      player.isOnline = true;
+      socket.join(foundRoom.roomCode);
+
+      // Re-map guess history keys if socket ID changed
+      if (oldPlayerSocketId !== socket.id) {
+        if (foundRoom.guesses[oldPlayerSocketId]) {
+          foundRoom.guesses[socket.id] = foundRoom.guesses[oldPlayerSocketId];
+          delete foundRoom.guesses[oldPlayerSocketId];
+        }
+        if (foundRoom.currentTurn === oldPlayerSocketId) {
+          foundRoom.currentTurn = socket.id;
+        }
+        if (foundRoom.winnerId === oldPlayerSocketId) {
+          foundRoom.winnerId = socket.id;
+        }
+        const rematchIdx = foundRoom.rematchRequests.indexOf(oldPlayerSocketId);
+        if (rematchIdx !== -1) {
+          foundRoom.rematchRequests[rematchIdx] = socket.id;
+        }
+      }
+
+      // Notify player of restored state
+      const opponent = foundRoom.players.find(p => p.sessionToken !== sessionToken);
+      socket.emit('room-restored', {
+        roomCode: foundRoom.roomCode,
+        players: foundRoom.players.map(p => ({ id: p.id, name: p.name, ready: p.ready, isOnline: p.isOnline })),
+        gameStarted: foundRoom.gameStarted,
+        gameOver: foundRoom.gameOver,
+        winnerId: foundRoom.winnerId,
+        currentTurn: foundRoom.currentTurn,
+        myGuesses: foundRoom.guesses[socket.id] || [],
+        opponentGuesses: opponent ? (foundRoom.guesses[opponent.id] || []) : [],
+        localSecret: player.secret,
+        opponentSecret: foundRoom.gameOver && opponent ? opponent.secret : null
+      });
+
+      // Notify opponent of status change
+      socket.to(foundRoom.roomCode).emit('player-status-changed', {
+        playerId: socket.id,
+        name: player.name,
+        isOnline: true
+      });
+
+      console.log(`Recovered session for player ${player.name} in room ${foundRoom.roomCode}`);
+    }
+  }
 
   // 1. Create Room
   socket.on('create-room', () => {
@@ -117,6 +205,8 @@ io.on('connection', (socket: Socket) => {
       players: [
         {
           id: socket.id,
+          sessionToken: sessionToken || socket.id,
+          isOnline: true,
           name: 'Player A',
           ready: false,
           secret: null
@@ -164,6 +254,8 @@ io.on('connection', (socket: Socket) => {
 
     const newPlayer: Player = {
       id: socket.id,
+      sessionToken: sessionToken || socket.id,
+      isOnline: true,
       name: 'Player B',
       ready: false,
       secret: null
@@ -383,7 +475,54 @@ io.on('connection', (socket: Socket) => {
   // 8. Disconnect
   socket.on('disconnect', () => {
     console.log(`Player disconnected: ${socket.id}`);
-    handlePlayerLeave(socket);
+    
+    const room = getSocketRoom(socket);
+    if (!room) return;
+
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player) return;
+
+    player.isOnline = false;
+
+    // Notify opponent that the player has disconnected
+    socket.to(room.roomCode).emit('player-status-changed', {
+      playerId: socket.id,
+      name: player.name,
+      isOnline: false
+    });
+
+    // Start a 20-second grace period for reconnection
+    const sessionToken = player.sessionToken;
+    disconnectTimeouts[sessionToken] = setTimeout(() => {
+      console.log(`Grace period expired for player ${player.name} (${sessionToken}). Removing from room.`);
+      delete disconnectTimeouts[sessionToken];
+
+      // Remove player permanently
+      const pIndex = room.players.findIndex(p => p.sessionToken === sessionToken);
+      if (pIndex !== -1) {
+        room.players.splice(pIndex, 1);
+
+        io.to(room.roomCode).emit('player-left', {
+          playerId: socket.id,
+          playerName: player.name
+        });
+
+        if (room.players.length === 0) {
+          delete rooms[room.roomCode];
+          console.log(`Room ${room.roomCode} deleted.`);
+        } else {
+          if (room.gameStarted && !room.gameOver) {
+            room.gameOver = true;
+            room.winnerId = room.players[0].id;
+            io.to(room.roomCode).emit('game-over', {
+              winnerId: room.winnerId,
+              players: room.players.map(p => ({ id: p.id, name: p.name, ready: p.ready, isOnline: p.isOnline })),
+              forfeit: true
+            });
+          }
+        }
+      }
+    }, 20000); // 20 seconds is perfect to copy/paste codes
   });
 });
 

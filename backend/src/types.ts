@@ -1,5 +1,7 @@
 export interface Player {
   id: string; // Socket ID
+  sessionToken: string;
+  isOnline: boolean;
   name: string; // Player A or Player B
   ready: boolean;
   secret: number | null;

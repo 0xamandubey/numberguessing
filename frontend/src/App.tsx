@@ -20,6 +20,7 @@ interface Player {
   id: string;
   name: string;
   ready: boolean;
+  isOnline?: boolean;
   secret?: number | null;
 }
 
@@ -191,6 +192,59 @@ export default function App() {
       showError(payload.message);
     }
 
+    function onRoomRestored(payload: {
+      roomCode: string;
+      players: Player[];
+      gameStarted: boolean;
+      gameOver: boolean;
+      winnerId: string | null;
+      currentTurn: string | null;
+      myGuesses: Guess[];
+      opponentGuesses: Guess[];
+      localSecret: number | null;
+      opponentSecret?: number | null;
+    }) {
+      setRoomCode(payload.roomCode);
+      setPlayers(payload.players);
+      setCurrentTurn(payload.currentTurn);
+      setLocalSecret(payload.localSecret);
+      setMyGuesses(payload.myGuesses);
+      setOpponentGuesses(payload.opponentGuesses);
+      setWinnerId(payload.winnerId);
+      
+      if (payload.localSecret !== null) {
+        setIsSecretLocked(true);
+        setSecretInput(String(payload.localSecret).padStart(4, '0'));
+      } else {
+        setIsSecretLocked(false);
+        setSecretInput('');
+      }
+
+      if (payload.gameOver) {
+        const opp = payload.players.find(p => p.id !== socket.id);
+        if (opp && payload.opponentSecret !== undefined && payload.opponentSecret !== null) {
+          opp.secret = payload.opponentSecret;
+        }
+        setScreen('RESULT');
+      } else if (payload.gameStarted) {
+        setScreen('GAME');
+      } else if (payload.players.length === 2 && payload.players.every(p => p.ready)) {
+        setScreen('SECRET');
+      } else {
+        setScreen('WAITING');
+      }
+      console.log('Room state successfully restored after PWA reconnection.');
+    }
+
+    function onPlayerStatusChanged(payload: { playerId: string; name: string; isOnline: boolean }) {
+      setPlayers(prev => prev.map(p => {
+        if (p.id === payload.playerId || (p.name === payload.name && p.id !== socket.id)) {
+          return { ...p, id: payload.playerId, isOnline: payload.isOnline };
+        }
+        return p;
+      }));
+    }
+
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
     socket.on('room-created', onRoomCreated);
@@ -205,6 +259,8 @@ export default function App() {
     socket.on('rematch-started', onRematchStarted);
     socket.on('player-left', onPlayerLeft);
     socket.on('error-message', onErrorMessage);
+    socket.on('room-restored', onRoomRestored);
+    socket.on('player-status-changed', onPlayerStatusChanged);
 
     return () => {
       socket.off('connect', onConnect);
@@ -221,6 +277,8 @@ export default function App() {
       socket.off('rematch-started', onRematchStarted);
       socket.off('player-left', onPlayerLeft);
       socket.off('error-message', onErrorMessage);
+      socket.off('room-restored', onRoomRestored);
+      socket.off('player-status-changed', onPlayerStatusChanged);
     };
   }, [screen, audioEnabled]);
 
@@ -600,6 +658,12 @@ export default function App() {
                 : "Waiting for Opponent's Guess"
               }
             </div>
+
+            {opponentPlayer && opponentPlayer.isOnline === false && (
+              <div className="border border-rose-100 bg-rose-50 text-rose-500 text-center p-2.5 font-sans font-bold rounded-2xl text-xs animate-pulse">
+                Opponent disconnected. Waiting for them to reconnect...
+              </div>
+            )}
 
             {/* Split grids */}
             <div className="grid grid-cols-1 gap-4">
