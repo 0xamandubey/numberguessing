@@ -1,4 +1,4 @@
-const CACHE_NAME = 'number-duel-cache-v1';
+const CACHE_NAME = 'number-duel-cache-v2';
 
 // Install event - skip waiting
 self.addEventListener('install', (event) => {
