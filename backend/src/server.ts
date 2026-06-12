@@ -180,7 +180,8 @@ io.on('connection', (socket: Socket) => {
         myGuesses: foundRoom.guesses[socket.id] || [],
         opponentGuesses: opponent ? (foundRoom.guesses[opponent.id] || []) : [],
         localSecret: player.secret,
-        opponentSecret: foundRoom.gameOver && opponent ? opponent.secret : null
+        opponentSecret: foundRoom.gameOver && opponent ? opponent.secret : null,
+        hintMode: foundRoom.hintMode
       });
 
       // Notify opponent of status change
@@ -195,11 +196,12 @@ io.on('connection', (socket: Socket) => {
   }
 
   // 1. Create Room
-  socket.on('create-room', () => {
+  socket.on('create-room', (payload?: { hintMode?: 'higher-lower' | 'digit-match' }) => {
     // Leave any existing rooms
     handlePlayerLeave(socket);
 
     const roomCode = generateRoomCode();
+    const hintMode = payload?.hintMode === 'digit-match' ? 'digit-match' : 'higher-lower';
     const newRoom: Room = {
       roomCode,
       players: [
@@ -217,16 +219,18 @@ io.on('connection', (socket: Socket) => {
       gameStarted: false,
       gameOver: false,
       winnerId: null,
-      rematchRequests: []
+      rematchRequests: [],
+      hintMode
     };
 
     rooms[roomCode] = newRoom;
     socket.join(roomCode);
     socket.emit('room-created', {
       roomCode,
-      players: newRoom.players
+      players: newRoom.players,
+      hintMode: newRoom.hintMode
     });
-    console.log(`Room created: ${roomCode} by ${socket.id}`);
+    console.log(`Room created: ${roomCode} by ${socket.id} with hint mode ${hintMode}`);
   });
 
   // 2. Join Room
@@ -267,7 +271,8 @@ io.on('connection', (socket: Socket) => {
     // Notify all players in room
     io.to(roomCode).emit('player-joined', {
       roomCode,
-      players: room.players
+      players: room.players,
+      hintMode: room.hintMode
     });
     console.log(`Player ${socket.id} joined room ${roomCode}`);
   });
@@ -289,7 +294,8 @@ io.on('connection', (socket: Socket) => {
     // Let everyone know about ready status update
     io.to(room.roomCode).emit('player-joined', {
       roomCode: room.roomCode,
-      players: room.players
+      players: room.players,
+      hintMode: room.hintMode
     });
 
     // If both players are in the room and both are ready, move to Secret Number Screen
@@ -337,7 +343,8 @@ io.on('connection', (socket: Socket) => {
       io.to(room.roomCode).emit('game-started', {
         currentTurn: room.currentTurn,
         players: room.players.map(p => ({ id: p.id, name: p.name, ready: p.ready })), // Hide secrets on client!
-        coinTossWinnerId: starter.id
+        coinTossWinnerId: starter.id,
+        hintMode: room.hintMode
       });
       console.log(`Game started in room ${room.roomCode}. Turn: ${starter.name} (${starter.id})`);
     } else {
@@ -372,21 +379,36 @@ io.on('connection', (socket: Socket) => {
 
     const opponent = room.players.find(p => p.id !== socket.id);
     if (!opponent || opponent.secret === null) {
-      socket.emit('error-message', { message: 'Opponent or opponent secret not found.' });
+      socket.emit('error-message', { message: 'Friend or friend secret not found.' });
       return;
     }
 
     // Determine hint
-    let result: 'higher' | 'lower' | 'correct' = 'correct';
-    if (guessVal < opponent.secret) {
-      result = 'higher';
-    } else if (guessVal > opponent.secret) {
-      result = 'lower';
+    let result: 'higher' | 'lower' | 'correct' | 'digit-match' = 'correct';
+    let matches: boolean[] = [true, true, true, true];
+
+    if (guessVal !== opponent.secret) {
+      if (room.hintMode === 'digit-match') {
+        result = 'digit-match';
+        const guessStr = String(guessVal).padStart(4, '0');
+        const secretStr = String(opponent.secret).padStart(4, '0');
+        matches = [];
+        for (let i = 0; i < 4; i++) {
+          matches.push(guessStr[i] === secretStr[i]);
+        }
+      } else {
+        if (guessVal < opponent.secret) {
+          result = 'higher';
+        } else {
+          result = 'lower';
+        }
+      }
     }
 
     const guessRecord: Guess = {
       guess: guessVal,
       hint: result,
+      matches: room.hintMode === 'digit-match' ? matches : undefined,
       timestamp: Date.now()
     };
 
@@ -401,6 +423,7 @@ io.on('connection', (socket: Socket) => {
       playerId: socket.id,
       guess: guessVal,
       hint: result,
+      matches: guessRecord.matches,
       history: room.guesses[socket.id]
     });
 

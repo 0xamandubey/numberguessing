@@ -26,7 +26,8 @@ interface Player {
 
 interface Guess {
   guess: number;
-  hint: 'higher' | 'lower' | 'correct';
+  hint: 'higher' | 'lower' | 'correct' | 'digit-match';
+  matches?: boolean[];
   timestamp: number;
 }
 
@@ -60,6 +61,10 @@ export default function App() {
   // Rematch state
   const [rematchRequestedByMe, setRematchRequestedByMe] = useState(false);
   const [rematchRequestedByOpponent, setRematchRequestedByOpponent] = useState(false);
+
+  // Hint Mode Settings
+  const [createHintMode, setCreateHintMode] = useState<'higher-lower' | 'digit-match'>('higher-lower');
+  const [roomHintMode, setRoomHintMode] = useState<'higher-lower' | 'digit-match'>('higher-lower');
 
 
 
@@ -99,17 +104,19 @@ export default function App() {
       showError('Disconnected from host server.');
     }
 
-    function onRoomCreated(payload: { roomCode: string; players: Player[] }) {
+    function onRoomCreated(payload: { roomCode: string; players: Player[]; hintMode?: 'higher-lower' | 'digit-match' }) {
       playBeep(523.25, 'sine', 0.15); // Cute High C note
       setRoomCode(payload.roomCode);
       setPlayers(payload.players);
+      setRoomHintMode(payload.hintMode || 'higher-lower');
       setScreen('WAITING');
     }
 
-    function onPlayerJoined(payload: { roomCode: string; players: Player[] }) {
+    function onPlayerJoined(payload: { roomCode: string; players: Player[]; hintMode?: 'higher-lower' | 'digit-match' }) {
       playBeep(587.33, 'sine', 0.12); // D note
       setRoomCode(payload.roomCode);
       setPlayers(payload.players);
+      setRoomHintMode(payload.hintMode || 'higher-lower');
       if (screen === 'HOME') {
         setScreen('WAITING');
       }
@@ -125,10 +132,11 @@ export default function App() {
       setIsSecretLocked(true);
     }
 
-    function onGameStarted(payload: { currentTurn: string; players: Player[]; coinTossWinnerId: string }) {
+    function onGameStarted(payload: { currentTurn: string; players: Player[]; coinTossWinnerId: string; hintMode?: 'higher-lower' | 'digit-match' }) {
       playBeep(783.99, 'sine', 0.22); // G note
       setPlayers(payload.players);
       setCurrentTurn(payload.currentTurn);
+      setRoomHintMode(payload.hintMode || 'higher-lower');
       setScreen('GAME');
     }
 
@@ -139,12 +147,22 @@ export default function App() {
       }
     }
 
-    function onGuessResult(payload: { playerId: string; guess: number; hint: 'higher' | 'lower' | 'correct'; history: Guess[] }) {
+    function onGuessResult(payload: { playerId: string; guess: number; hint: 'higher' | 'lower' | 'correct' | 'digit-match'; matches?: boolean[]; history: Guess[] }) {
       if (payload.playerId === socket.id) {
         setMyGuesses(payload.history);
         if (payload.hint === 'higher') playBeep(880, 'sine', 0.12); // High A
         else if (payload.hint === 'lower') playBeep(330, 'sine', 0.12); // Low E
-        else playBeep(987.77, 'sine', 0.3); // High B
+        else if (payload.hint === 'correct') playBeep(987.77, 'sine', 0.3); // High B
+        else {
+          // digit-match mode
+          // play a cute pitch sequence or higher pitch if there are more matches
+          const matchCount = payload.matches?.filter(Boolean).length || 0;
+          if (matchCount > 0) {
+            playBeep(523.25 + matchCount * 100, 'sine', 0.12);
+          } else {
+            playBeep(330, 'sine', 0.1);
+          }
+        }
       } else {
         setOpponentGuesses(payload.history);
         playBeep(440, 'sine', 0.08);
@@ -203,6 +221,7 @@ export default function App() {
       opponentGuesses: Guess[];
       localSecret: number | null;
       opponentSecret?: number | null;
+      hintMode?: 'higher-lower' | 'digit-match';
     }) {
       setRoomCode(payload.roomCode);
       setPlayers(payload.players);
@@ -211,6 +230,7 @@ export default function App() {
       setMyGuesses(payload.myGuesses);
       setOpponentGuesses(payload.opponentGuesses);
       setWinnerId(payload.winnerId);
+      setRoomHintMode(payload.hintMode || 'higher-lower');
       
       if (payload.localSecret !== null) {
         setIsSecretLocked(true);
@@ -298,6 +318,7 @@ export default function App() {
     setIsSecretLocked(false);
     setRematchRequestedByMe(false);
     setRematchRequestedByOpponent(false);
+    setRoomHintMode('higher-lower');
   };
 
   const resetRoundState = () => {
@@ -324,7 +345,7 @@ export default function App() {
 
   // Button Action Handlers
   const handleCreateRoom = () => {
-    socket.emit('create-room');
+    socket.emit('create-room', { hintMode: createHintMode });
   };
 
   const handleJoinRoom = (e?: React.FormEvent) => {
@@ -440,6 +461,42 @@ export default function App() {
               </p>
             </div>
 
+            {/* Hint Mode Selection */}
+            <div className="space-y-2.5 bg-pink-50/20 border border-pink-100/40 p-4 rounded-2xl text-left">
+              <span className="text-xs font-bold text-gray-500 uppercase tracking-wider block">
+                Select Hint Mode
+              </span>
+              <div className="grid grid-cols-2 gap-2 p-1 bg-pink-100/20 rounded-xl border border-pink-100/30">
+                <button
+                  type="button"
+                  onClick={() => setCreateHintMode('higher-lower')}
+                  className={`py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    createHintMode === 'higher-lower'
+                      ? 'bg-pink-500 text-white shadow-sm'
+                      : 'text-gray-500 hover:text-pink-500 hover:bg-pink-50/50'
+                  }`}
+                >
+                  Higher / Lower
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCreateHintMode('digit-match')}
+                  className={`py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    createHintMode === 'digit-match'
+                      ? 'bg-pink-500 text-white shadow-sm'
+                      : 'text-gray-500 hover:text-pink-500 hover:bg-pink-50/50'
+                  }`}
+                >
+                  Digit Match
+                </button>
+              </div>
+              <p className="text-[11px] text-gray-400 leading-relaxed font-sans">
+                {createHintMode === 'higher-lower'
+                  ? '💡 Hints tell you if the target number is HIGHER or LOWER than your guess.'
+                  : '💡 Colors individual digits: GREEN for correct position, RED for wrong position.'}
+              </p>
+            </div>
+
             <div className="space-y-3.5">
               <button
                 onClick={handleCreateRoom}
@@ -448,8 +505,6 @@ export default function App() {
                 <Sparkles className="w-4 h-4" />
                 <span>Create a Room</span>
               </button>
-
-
             </div>
 
             <div className="relative flex items-center py-1">
@@ -573,7 +628,7 @@ export default function App() {
                   }
                 `}
               >
-                {localPlayer.ready ? 'Waiting for opponent...' : "I'm Ready!"}
+                {localPlayer.ready ? 'Waiting for friend...' : "I'm Ready!"}
               </button>
             )}
 
@@ -592,7 +647,7 @@ export default function App() {
           <div className="w-full bg-white rounded-3xl p-6 shadow-xl shadow-pink-100/60 border border-pink-50/50 space-y-6 animate-scale-up">
             <div className="text-center space-y-1">
               <h2 className="text-xl font-extrabold text-gray-800 tracking-tight">Set Secret Number</h2>
-              <p className="text-xs text-gray-400">Choose a 4-digit code that your opponent will try to guess.</p>
+              <p className="text-xs text-gray-400">Choose a 4-digit code that your friend will try to guess.</p>
             </div>
 
             <div className="text-center space-y-3">
@@ -636,7 +691,7 @@ export default function App() {
             {isSecretLocked && (
               <div className="border border-pink-100 bg-pink-50/30 rounded-2xl p-3.5 flex items-center justify-center space-x-2 text-pink-500 animate-pulse text-xs font-semibold tracking-wide uppercase">
                 <Lock className="w-4 h-4" />
-                <span>Code locked. Waiting for opponent...</span>
+                <span>Code locked. Waiting for friend...</span>
               </div>
             )}
           </div>
@@ -655,13 +710,13 @@ export default function App() {
             `}>
               {isMyTurn 
                 ? "It's Your Turn" 
-                : "Waiting for Opponent's Guess"
+                : "Waiting for Friend's Guess"
               }
             </div>
 
             {opponentPlayer && opponentPlayer.isOnline === false && (
               <div className="border border-rose-100 bg-rose-50 text-rose-500 text-center p-2.5 font-sans font-bold rounded-2xl text-xs animate-pulse">
-                Opponent disconnected. Waiting for them to reconnect...
+                Friend disconnected. Waiting for them to reconnect...
               </div>
             )}
 
@@ -710,7 +765,7 @@ export default function App() {
 
                 {!isMyTurn && (
                   <div className="bg-gray-50 border border-gray-100 rounded-xl p-2.5 text-center text-xs text-gray-400">
-                    Opponent is thinking...
+                    Friend is thinking...
                   </div>
                 )}
 
@@ -755,11 +810,36 @@ export default function App() {
                               className="flex justify-between items-center p-1.5 rounded-xl border border-pink-50/70 bg-white animate-scale-up"
                             >
                               <span className="text-gray-500 text-[10px]">
-                                #{originalIndex}: <strong className="text-gray-700 text-xs font-mono font-bold ml-0.5">{String(g.guess).padStart(4, '0')}</strong>
+                                #{originalIndex}:{' '}
+                                <strong className="text-xs font-mono font-bold ml-0.5 tracking-wider inline-flex">
+                                  {roomHintMode === 'digit-match' ? (
+                                    String(g.guess).padStart(4, '0').split('').map((char, idx) => {
+                                      const isMatch = g.matches?.[idx];
+                                      return (
+                                        <span
+                                          key={idx}
+                                          className={isMatch ? 'text-green-500 font-extrabold' : 'text-red-500 font-medium'}
+                                        >
+                                          {char}
+                                        </span>
+                                      );
+                                    })
+                                  ) : (
+                                    <span className="text-gray-700">{String(g.guess).padStart(4, '0')}</span>
+                                  )}
+                                </strong>
                               </span>
-                              <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${hintBadge}`}>
-                                {g.hint}
-                              </span>
+                              {roomHintMode === 'digit-match' ? (
+                                g.hint === 'correct' && (
+                                  <span className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase bg-green-50 text-green-600 border border-green-150 animate-bounce">
+                                    CORRECT
+                                  </span>
+                                )
+                              ) : (
+                                <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${hintBadge}`}>
+                                  {g.hint}
+                                </span>
+                              )}
                             </div>
                           );
                         })
@@ -767,11 +847,11 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Right Column: Opponent's Guesses */}
+                  {/* Right Column: Friend's Guesses */}
                   <div className="flex flex-col h-full overflow-hidden pl-0.5">
                     <div className="border-b border-pink-50 pb-2 flex justify-between items-center mb-2">
                       <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">
-                        Opponent
+                        Friend
                       </span>
                       <span className="text-[10px] bg-pink-50 text-pink-500 border border-pink-100 px-2 py-0.5 rounded-full font-bold">
                         {opponentGuesses.length}
@@ -798,11 +878,36 @@ export default function App() {
                               className="flex justify-between items-center p-1.5 rounded-xl border border-pink-50/70 bg-white animate-scale-up"
                             >
                               <span className="text-gray-500 text-[10px]">
-                                #{originalIndex}: <strong className="text-gray-700 text-xs font-mono font-bold ml-0.5">{String(g.guess).padStart(4, '0')}</strong>
+                                #{originalIndex}:{' '}
+                                <strong className="text-xs font-mono font-bold ml-0.5 tracking-wider inline-flex">
+                                  {roomHintMode === 'digit-match' ? (
+                                    String(g.guess).padStart(4, '0').split('').map((char, idx) => {
+                                      const isMatch = g.matches?.[idx];
+                                      return (
+                                        <span
+                                          key={idx}
+                                          className={isMatch ? 'text-green-500 font-extrabold' : 'text-red-500 font-medium'}
+                                        >
+                                          {char}
+                                        </span>
+                                      );
+                                    })
+                                  ) : (
+                                    <span className="text-gray-700">{String(g.guess).padStart(4, '0')}</span>
+                                  )}
+                                </strong>
                               </span>
-                              <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${hintBadge}`}>
-                                {g.hint}
-                              </span>
+                              {roomHintMode === 'digit-match' ? (
+                                g.hint === 'correct' && (
+                                  <span className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase bg-green-50 text-green-600 border border-green-150 animate-bounce">
+                                    CORRECT
+                                  </span>
+                                )
+                              ) : (
+                                <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${hintBadge}`}>
+                                  {g.hint}
+                                </span>
+                              )}
                             </div>
                           );
                         })
@@ -838,7 +943,7 @@ export default function App() {
                     You Won
                   </h2>
                   <p className="text-sm text-gray-400 mt-1">
-                    You cracked the opponent's number!
+                    You cracked your friend's number!
                   </p>
                 </div>
               ) : (
@@ -847,7 +952,7 @@ export default function App() {
                     You Lost
                   </h2>
                   <p className="text-sm text-gray-400 mt-1">
-                    The opponent cracked your number first.
+                    Your friend cracked your number first.
                   </p>
                 </div>
               )}
@@ -868,7 +973,7 @@ export default function App() {
               </div>
 
               <div className="flex justify-between items-center">
-                <span className="text-gray-500 font-medium">Opponent's Secret:</span>
+                <span className="text-gray-500 font-medium">Friend's Secret:</span>
                 <span className="text-pink-600 font-mono font-bold tracking-widest text-base">
                   {opponentPlayer?.secret !== null && opponentPlayer?.secret !== undefined ? String(opponentPlayer.secret).padStart(4, '0') : '????'}
                 </span>
@@ -882,7 +987,7 @@ export default function App() {
 
             {forfeit && (
               <div className="border border-red-200 bg-red-50 text-red-500 rounded-xl p-2.5 text-xs font-bold">
-                Opponent left the game.
+                Friend left the game.
               </div>
             )}
 
@@ -890,7 +995,7 @@ export default function App() {
             <div className="space-y-3">
               {rematchRequestedByOpponent && !rematchRequestedByMe && (
                 <div className="bg-pink-100 border border-pink-200 text-pink-600 rounded-xl p-3 text-xs font-bold animate-pulse">
-                  Opponent is requesting a rematch!
+                  Friend is requesting a rematch!
                 </div>
               )}
 
